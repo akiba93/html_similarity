@@ -1,0 +1,36 @@
+网页相似度分析 设计文档
+
+应用BeautifulSoup对原始Html文件进行解析，提供基于NLP文本表征和基于Tag元素属性特征的两种相似度计算方法
+
+1.BeautifulSoup 解析
+    Beautiful Soup 是一个可以从HTML或XML文件中提取数据的Python库. Beautiful Soup支持Python标准库中的HTML解析器,还支持一些第三方的解析器.本脚本选用Python标准库解析，可按需选择其他第三方解析器.
+    Beautiful Soup将复杂HTML文档转换成一个复杂的树形结构,每个节点都是Python对象,所有对象可以归纳为4种: Tag , NavigableString , BeautifulSoup , Comment. 其中BeautifulSoup 对象表示的是一个文档的全部内容.大部分时候,可以把它当作Tag对象, Comment对网页实际显示无关，故只考虑Tag 和 Navigable String两类对象.
+    Tag具有 name，attrs, string 三种属性；NavigableString只具有string属性, 故本脚本在基于Tag元素属性特征计算中只考虑 name, attrs, string三类相似度.
+    
+2.基于NLP文本表征方法
+    总体思路：
+        所有获得的Tag对象均可转换成对应的文本内容，对每个Tag可以通过预训练NLP模型获得向量表征，对其向量进行相似度计算，得出最后相似度结果
+    具体实现：
+        1.对于head和body中的tag进行分开计算，这样可以按需调整最终相似度计算中head相似度和body相似度的比重（可选等权重，Tag数加权两种）
+        2.选择 alecsharpie/codegen_350m_html 模型作为特征抽取模型，此模型为decoder架构模型且基于html code数据集finetuned,相比于其他code generate模型（eg:codebert), 训练数据未包含html code,此模型有比较大优势
+        3.文本表征：对于last hidden state进行平均加权来获得每个文本表征；对于超窗宽的超长文本，对其进行序列分段，分别获得每段文本表征后，采用concat的形式获得最终文本表征
+        4.采用cosin similariy 来计算两文本表征向量的相似度，对于不等长向量，进行 padding后再进行计算
+        5.最终的head similariy 及 body similariy 为head/ body 中各个按顺序对应tag文本表征向量相似度的平均值,并用于最后页面相似度的计算
+            page similarity = weight * head similariy + (1 - weight) * body similariy
+        
+3.基于Tag元素属性特征
+    总体思路:定义 name similarity，attrs similarity，string similarity 三个相似度计算函数，对于不同类型tag考虑其中1种或多种相似度加权求和，作为tag之间的相似度结果，分别计算两网页head/body中所有按顺序tag的相似度平均和，作为head similarity 和 body similarity, 此两值最后平均求和或者按tag数占比加权求和获得最终网页相似度
+    具体实现：
+        1.name similarity: 因为html标签有大量约定俗成的定义，故只考虑完全相等及不等两种情况来计算相似度（即只有1，0两种可能）
+        2.attrs similarity: 因为attrs为字典类型，故分别考虑key 和 value相似度，在key相等情况下，再考虑value的相似性；key相似度采用jaccard similarity，而values具有类型多样性，如全为string，采用string similarity计算；如为list ,采用 jaccard similarity；如两种类型不等，则认为不相似.key similarity 和 value similarity 加权求和后获得最终attrs similarity
+        3.string similarity: 均为字符串类型，选用sentence transformer模型提取文本特征向量进行cosin similarity计算
+        4.tag similarity:对于 Tag 类型，为三种相似度等权求和；对于 NavigableString 类型，只考虑string similarity
+        5.head(body) similarity 为两网页全体 head (body) tag 相似度的平均和
+        6.最终网页相似度: page similarity = weight * head similariy + (1 - weight) * body similariy 
+        
+4.拓展
+    对于NLP方法 -- 可多进程对网页进行tokenized及序列拆分，分发到多块显卡进行计算，获得最终表征向量，且最终向量可存储于向量数据库中，方便后续计算及筛选
+    对于Tag 元素特征方法 -- 可多个tag进行并行计算，加速最终结果获得
+        
+        
+        
